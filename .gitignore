@@ -1,0 +1,28 @@
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+scraper/.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+
+# Node
+node_modules/
+
+# Next.js
+web/.next/
+web/out/
+
+# Vercel
+.vercel
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Recon scripts and data
+scraper/recon_*
