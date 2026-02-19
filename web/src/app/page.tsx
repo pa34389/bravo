@@ -190,87 +190,82 @@ export default function HomePage() {
                 const key = `${r.store}:${r.product_id}`;
                 const isExpanded = expandedResult === key;
 
+                if (isExpanded) {
+                  return (
+                    <div key={key}>
+                      {/* Collapse bar */}
+                      <button
+                        onClick={() => setExpandedResult(null)}
+                        className="w-full flex items-center gap-2 px-3 py-2 mb-1 rounded-lg text-xs font-medium text-text-secondary"
+                      >
+                        <ChevronRight size={12} className="rotate-90" />
+                        Back to results
+                      </button>
+                      <VerdictCard
+                        special={r.special}
+                        intel={r.intel}
+                        name={r.name}
+                        store={r.store}
+                        productId={r.product_id}
+                        imageUrl={r.image_url}
+                        onSearchRequest={(q) => {
+                          onQueryChange(q);
+                          inputRef.current?.focus();
+                        }}
+                      />
+                    </div>
+                  );
+                }
+
                 return (
-                  <div key={key}>
-                    {/* Compact row */}
-                    <button
-                      onClick={() =>
-                        setExpandedResult(isExpanded ? null : key)
-                      }
-                      className={cn(
-                        "w-full flex items-center gap-3 p-3 rounded-xl text-left transition-all",
-                        "bg-surface-raised border border-separator/40",
-                        isExpanded && "border-brand/30"
-                      )}
-                    >
-                      <VerdictDot special={r.special} intel={r.intel} />
-                      <div className="flex-shrink-0 h-10 w-10 rounded-lg bg-white dark:bg-surface-secondary flex items-center justify-center overflow-hidden">
-                        {r.image_url ? (
-                          <img
-                            src={r.image_url}
-                            alt=""
-                            className="h-9 w-9 object-contain"
-                            loading="lazy"
-                          />
-                        ) : (
-                          <span className="text-sm text-text-tertiary">
-                            {r.name.charAt(0)}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-text-primary truncate">
-                          {r.name}
-                        </p>
-                        <div className="flex items-center gap-1 mt-0.5">
-                          <span
-                            className={cn(
-                              "h-1 w-1 rounded-full",
-                              r.store === "woolworths"
-                                ? "bg-woolworths"
-                                : "bg-coles"
-                            )}
-                          />
-                          <span className="text-[10px] text-text-secondary">
-                            {storeDisplayName(r.store)}
-                          </span>
-                          <span className="text-[10px] text-text-tertiary ml-1">
-                            {computeVerdict(r.special, r.intel).headline}
-                          </span>
-                        </div>
-                      </div>
-                      {r.special && (
-                        <span className="text-sm font-bold tabular-nums">
-                          {formatPrice(r.special.current_price)}
+                  <button
+                    key={key}
+                    onClick={() => setExpandedResult(key)}
+                    className="w-full flex items-center gap-3 p-3 rounded-xl text-left transition-all bg-surface-raised border border-separator/40"
+                  >
+                    <VerdictDot special={r.special} intel={r.intel} />
+                    <div className="flex-shrink-0 h-10 w-10 rounded-lg bg-white dark:bg-surface-secondary flex items-center justify-center overflow-hidden">
+                      {r.image_url ? (
+                        <img
+                          src={r.image_url}
+                          alt=""
+                          className="h-9 w-9 object-contain"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <span className="text-sm text-text-tertiary">
+                          {r.name.charAt(0)}
                         </span>
                       )}
-                      <ChevronRight
-                        size={14}
-                        className={cn(
-                          "text-text-tertiary transition-transform",
-                          isExpanded && "rotate-90"
-                        )}
-                      />
-                    </button>
-
-                    {/* Expanded verdict */}
-                    {isExpanded && (
-                      <div className="mt-2 mb-1">
-                        <VerdictCard
-                          special={r.special}
-                          intel={r.intel}
-                          name={r.name}
-                          store={r.store}
-                          productId={r.product_id}
-                          imageUrl={r.image_url}
-                          onSearchRequest={(q) => {
-                            onQueryChange(q);
-                            inputRef.current?.focus();
-                          }}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-text-primary truncate">
+                        {r.name}
+                      </p>
+                      <div className="flex items-center gap-1 mt-0.5">
+                        <span
+                          className={cn(
+                            "h-1 w-1 rounded-full",
+                            r.store === "woolworths"
+                              ? "bg-woolworths"
+                              : "bg-coles"
+                          )}
                         />
+                        <span className="text-[10px] text-text-secondary">
+                          {storeDisplayName(r.store)}
+                        </span>
+                        <span className="text-[10px] text-text-tertiary ml-1">
+                          {computeVerdict(r.special, r.intel).headline}
+                        </span>
                       </div>
+                    </div>
+                    {r.special && (
+                      <span className="text-sm font-bold tabular-nums">
+                        {formatPrice(r.special.current_price)}
+                      </span>
                     )}
-                  </div>
+                    <ChevronRight size={14} className="text-text-tertiary" />
+                  </button>
                 );
               })}
             </div>
