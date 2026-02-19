@@ -1,18 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Trash2 } from "lucide-react";
+import { useEffect, useState, useCallback } from "react";
 import { cn, formatPrice, computeVerdict, storeDisplayName, predictionText } from "@/lib/utils";
 import { VerdictDot, VerdictCard } from "@/components/verdict-card";
-import { useWatchlist } from "@/hooks/use-my-list";
+import { SwipeToRemove } from "@/components/swipe-to-remove";
+import { UndoToast } from "@/components/undo-toast";
+import { useWatchlist, type WatchlistItem } from "@/hooks/use-my-list";
 import { supabase, type Special, type SpecialIntel } from "@/lib/supabase";
 
 export default function WatchingPage() {
-  const { items: watchlistItems, removeItem } = useWatchlist();
+  const { items: watchlistItems, removeItem, addItem } = useWatchlist();
   const [specials, setSpecials] = useState<Special[]>([]);
   const [intel, setIntel] = useState<SpecialIntel[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
+  const [removedItem, setRemovedItem] = useState<WatchlistItem | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -32,6 +34,25 @@ export default function WatchingPage() {
 
   const getIntel = (store: string, productId: string) =>
     intel.find((i) => i.store === store && i.product_id === productId) ?? null;
+
+  const handleRemove = useCallback(
+    (w: WatchlistItem) => {
+      setRemovedItem({ ...w });
+      removeItem(w.store, w.productId);
+    },
+    [removeItem]
+  );
+
+  const handleUndo = useCallback(
+    (item: WatchlistItem) => {
+      addItem({ store: item.store, productId: item.productId, name: item.name });
+    },
+    [addItem]
+  );
+
+  const handleDismissToast = useCallback(() => {
+    setRemovedItem(null);
+  }, []);
 
   const enriched = watchlistItems.map((w) => ({
     ...w,
@@ -74,6 +95,13 @@ export default function WatchingPage() {
         </div>
       )}
 
+      {/* Swipe hint */}
+      {watchlistItems.length > 0 && (
+        <p className="text-[11px] text-text-tertiary mb-3">
+          Swipe left on any item to remove
+        </p>
+      )}
+
       {/* On sale section */}
       {onSale.length > 0 && (
         <div className="mb-6">
@@ -88,30 +116,32 @@ export default function WatchingPage() {
 
               return (
                 <div key={key}>
-                  <button
-                    onClick={() => setExpandedItem(isExpanded ? null : key)}
-                    className="w-full flex items-center gap-3 p-3 rounded-xl bg-green-50 dark:bg-green-950/25 border border-green-200 dark:border-green-800/40 text-left transition-all"
-                  >
-                    <VerdictDot special={w.special} intel={w.intel} />
-                    <div className="flex-shrink-0 h-10 w-10 rounded-lg bg-white dark:bg-surface-raised flex items-center justify-center overflow-hidden">
-                      {w.special?.image_url ? (
-                        <img src={w.special.image_url} alt="" className="h-9 w-9 object-contain" loading="lazy" />
-                      ) : (
-                        <span className="text-sm text-text-tertiary">{w.name.charAt(0)}</span>
+                  <SwipeToRemove onRemove={() => handleRemove(w)}>
+                    <button
+                      onClick={() => setExpandedItem(isExpanded ? null : key)}
+                      className="w-full flex items-center gap-3 p-3 rounded-xl bg-green-50 dark:bg-green-950/25 border border-green-200 dark:border-green-800/40 text-left transition-all"
+                    >
+                      <VerdictDot special={w.special} intel={w.intel} />
+                      <div className="flex-shrink-0 h-10 w-10 rounded-lg bg-white dark:bg-surface-raised flex items-center justify-center overflow-hidden">
+                        {w.special?.image_url ? (
+                          <img src={w.special.image_url} alt="" className="h-9 w-9 object-contain" loading="lazy" />
+                        ) : (
+                          <span className="text-sm text-text-tertiary">{w.name.charAt(0)}</span>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-text-primary truncate">{w.name}</p>
+                        <span className="text-xs text-green-700 dark:text-green-400 font-semibold">
+                          {verdict.headline}
+                        </span>
+                      </div>
+                      {w.special && (
+                        <span className="text-sm font-bold tabular-nums">
+                          {formatPrice(w.special.current_price)}
+                        </span>
                       )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-text-primary truncate">{w.name}</p>
-                      <span className="text-xs text-green-700 dark:text-green-400 font-semibold">
-                        {verdict.headline}
-                      </span>
-                    </div>
-                    {w.special && (
-                      <span className="text-sm font-bold tabular-nums">
-                        {formatPrice(w.special.current_price)}
-                      </span>
-                    )}
-                  </button>
+                    </button>
+                  </SwipeToRemove>
 
                   {isExpanded && w.special && (
                     <div className="mt-2 mb-1">
@@ -144,43 +174,44 @@ export default function WatchingPage() {
               const daysSince = w.intel?.days_since_last_special ?? null;
 
               return (
-                <div
+                <SwipeToRemove
                   key={`${w.store}:${w.productId}`}
-                  className="flex items-center gap-3 p-3 rounded-xl bg-surface-raised border border-separator/40"
+                  onRemove={() => handleRemove(w)}
                 >
-                  <VerdictDot special={null} intel={w.intel} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-text-primary truncate">
-                      {w.name}
-                    </p>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <span
-                        className={cn(
-                          "h-1 w-1 rounded-full",
-                          w.store === "woolworths" ? "bg-woolworths" : "bg-coles"
-                        )}
-                      />
-                      <span className="text-[10px] text-text-secondary">
-                        {storeDisplayName(w.store)}
-                      </span>
-                      <span className="text-xs text-amber-700 dark:text-amber-400">
-                        {predictionText(expected, daysSince)}
-                      </span>
+                  <div className="flex items-center gap-3 p-3 rounded-xl bg-surface-raised border border-separator/40">
+                    <VerdictDot special={null} intel={w.intel} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-text-primary truncate">
+                        {w.name}
+                      </p>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span
+                          className={cn(
+                            "h-1 w-1 rounded-full",
+                            w.store === "woolworths" ? "bg-woolworths" : "bg-coles"
+                          )}
+                        />
+                        <span className="text-[10px] text-text-secondary">
+                          {storeDisplayName(w.store)}
+                        </span>
+                        <span className="text-xs text-amber-700 dark:text-amber-400">
+                          {predictionText(expected, daysSince)}
+                        </span>
+                      </div>
                     </div>
                   </div>
-                  <button
-                    onClick={() => removeItem(w.store, w.productId)}
-                    className="p-2 text-text-tertiary hover:text-price-up transition-colors"
-                    aria-label="Remove"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
+                </SwipeToRemove>
               );
             })}
           </div>
         </div>
       )}
+
+      <UndoToast
+        item={removedItem}
+        onUndo={handleUndo}
+        onDismiss={handleDismissToast}
+      />
     </div>
   );
 }
