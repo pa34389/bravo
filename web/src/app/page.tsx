@@ -3,7 +3,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { Search as SearchIcon, X, ChevronRight } from "lucide-react";
 import { cn, formatPrice, computeVerdict, storeDisplayName, predictionText } from "@/lib/utils";
-import { SavingsTicker } from "@/components/savings-ticker";
 import { VerdictCard, VerdictDot } from "@/components/verdict-card";
 import { ProductTile } from "@/components/product-tile";
 import { useWatchlist } from "@/hooks/use-my-list";
@@ -264,6 +263,10 @@ export default function HomePage() {
                           store={r.store}
                           productId={r.product_id}
                           imageUrl={r.image_url}
+                          onSearchRequest={(q) => {
+                            onQueryChange(q);
+                            inputRef.current?.focus();
+                          }}
                         />
                       </div>
                     )}
@@ -275,19 +278,48 @@ export default function HomePage() {
         </div>
       )}
 
+      {/* Category scroll strip — always visible (Uber Eats pattern) */}
+      {!isSearchActive && (
+        <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-4 px-4 pb-4">
+          {ONBOARDING_CATEGORIES.map((cat) => (
+            <button
+              key={cat.search}
+              onClick={() => {
+                onQueryChange(cat.search);
+                inputRef.current?.focus();
+              }}
+              className="category-pick flex items-center gap-1.5 px-3 py-2 rounded-full bg-surface-raised border border-separator/40 whitespace-nowrap flex-shrink-0"
+            >
+              <span className="text-base">{cat.emoji}</span>
+              <span className="text-xs font-medium text-text-secondary">
+                {cat.label}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Home content (hidden when searching) */}
       {!isSearchActive && (
         <div className="space-y-6 pb-8">
-          {/* Potential savings ticker */}
-          {watchedOnSale.length > 0 && (
-            <SavingsTicker watchedOnSale={watchedOnSale} />
+          {/* Onboarding nudge — only for empty watchlist */}
+          {watchlistItems.length === 0 && (
+            <div className="rounded-2xl bg-surface-raised border border-separator/60 p-5 text-center">
+              <p className="text-lg font-semibold text-text-primary mb-1">
+                Track the expensive stuff
+              </p>
+              <p className="text-sm text-text-secondary leading-relaxed">
+                Search for products you buy regularly — dishwasher tablets,
+                coffee, laundry detergent. We&apos;ll tell you when to buy.
+              </p>
+            </div>
           )}
 
-          {/* Watched items waiting */}
+          {/* Tracking status — items waiting, none on sale */}
           {watchedWaiting.length > 0 && watchedOnSale.length === 0 && (
             <div className="rounded-2xl bg-surface-raised border border-separator/60 p-4">
               <p className="text-sm font-semibold text-text-primary mb-1">
-                Watching {watchlistItems.length} item{watchlistItems.length !== 1 ? "s" : ""}
+                Tracking {watchlistItems.length} item{watchlistItems.length !== 1 ? "s" : ""}
               </p>
               <p className="text-sm text-text-secondary">
                 None on sale right now. We&apos;ll surface them when they drop.
@@ -295,39 +327,7 @@ export default function HomePage() {
             </div>
           )}
 
-          {/* Empty state with onboarding categories */}
-          {watchlistItems.length === 0 && (
-            <div>
-              <div className="rounded-2xl bg-surface-raised border border-separator/60 p-5 text-center mb-4">
-                <p className="text-lg font-semibold text-text-primary mb-1">
-                  Track the expensive stuff
-                </p>
-                <p className="text-sm text-text-secondary leading-relaxed">
-                  Tap a category below to find products you buy regularly.
-                  We&apos;ll tell you when they&apos;re on sale.
-                </p>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                {ONBOARDING_CATEGORIES.map((cat) => (
-                  <button
-                    key={cat.search}
-                    onClick={() => {
-                      onQueryChange(cat.search);
-                      inputRef.current?.focus();
-                    }}
-                    className="category-pick flex flex-col items-center gap-1.5 p-3 rounded-xl bg-surface-raised border border-separator/40"
-                  >
-                    <span className="text-2xl">{cat.emoji}</span>
-                    <span className="text-xs font-medium text-text-secondary leading-tight text-center">
-                      {cat.label}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Watchlist items waiting (if some are on sale, show waiting below) */}
+          {/* Tracked items waiting (if some are on sale, show waiting below) */}
           {watchedOnSale.length > 0 && watchedWaiting.length > 0 && (
             <div>
               <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-2">

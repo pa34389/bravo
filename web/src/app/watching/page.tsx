@@ -56,7 +56,7 @@ export default function WatchingPage() {
   return (
     <div className="px-4 pt-safe">
       <div className="pt-10 pb-4">
-        <h1 className="text-2xl font-bold tracking-tight">Watching</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Tracking</h1>
         <p className="text-sm text-text-secondary mt-0.5">
           {watchlistItems.length} item{watchlistItems.length !== 1 ? "s" : ""} tracked
         </p>
@@ -65,7 +65,7 @@ export default function WatchingPage() {
       {watchlistItems.length === 0 && (
         <div className="rounded-2xl bg-surface-raised border border-separator/60 p-6 text-center mt-4">
           <p className="text-lg font-semibold text-text-primary mb-1">
-            Nothing watched yet
+            Nothing tracked yet
           </p>
           <p className="text-sm text-text-secondary leading-relaxed">
             Go to Home and search for products you buy — dishwasher tablets, laundry detergent, coffee.

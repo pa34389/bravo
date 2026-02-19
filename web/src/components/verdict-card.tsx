@@ -1,9 +1,21 @@
 "use client";
 
+import { useState } from "react";
 import { Plus, Check, TrendingDown, Clock, Minus } from "lucide-react";
 import { cn, formatPrice, computeVerdict, type Verdict } from "@/lib/utils";
 import { useWatchlist } from "@/hooks/use-my-list";
 import type { Special, SpecialIntel } from "@/lib/supabase";
+
+const ALSO_CHECK_SUGGESTIONS = [
+  { label: "Coffee", search: "coffee" },
+  { label: "Laundry", search: "laundry" },
+  { label: "Dishwasher", search: "dishwasher" },
+  { label: "Nappies", search: "nappies" },
+  { label: "Pet food", search: "dog food cat food" },
+  { label: "Toilet paper", search: "toilet paper" },
+  { label: "Shampoo", search: "shampoo" },
+  { label: "Toothpaste", search: "toothpaste" },
+];
 
 interface VerdictCardProps {
   special: Special | null;
@@ -12,6 +24,7 @@ interface VerdictCardProps {
   store: "woolworths" | "coles";
   productId: string;
   imageUrl: string | null;
+  onSearchRequest?: (query: string) => void;
 }
 
 const verdictConfig: Record<
@@ -48,12 +61,28 @@ export function VerdictCard({
   store,
   productId,
   imageUrl,
+  onSearchRequest,
 }: VerdictCardProps) {
   const { hasItem, toggleItem } = useWatchlist();
   const isWatched = hasItem(store, productId);
+  const [justTracked, setJustTracked] = useState(false);
   const result = computeVerdict(special, intel);
   const config = verdictConfig[result.verdict];
   const Icon = config.icon;
+
+  const handleTrack = () => {
+    const wasTracked = isWatched;
+    toggleItem({ store, productId, name });
+    if (!wasTracked) {
+      setJustTracked(true);
+    } else {
+      setJustTracked(false);
+    }
+  };
+
+  const suggestions = ALSO_CHECK_SUGGESTIONS.filter(
+    (s) => !name.toLowerCase().includes(s.label.toLowerCase())
+  ).slice(0, 3);
 
   return (
     <div
@@ -139,9 +168,9 @@ export function VerdictCard({
           {result.detail}
         </p>
 
-        {/* Watch button */}
+        {/* Track button */}
         <button
-          onClick={() => toggleItem({ store, productId, name })}
+          onClick={handleTrack}
           className={cn(
             "mt-3 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all",
             isWatched
@@ -152,15 +181,35 @@ export function VerdictCard({
           {isWatched ? (
             <>
               <Check size={16} strokeWidth={2.5} />
-              Watching
+              Tracking
             </>
           ) : (
             <>
               <Plus size={16} strokeWidth={2.5} />
-              Watch this item
+              Track this
             </>
           )}
         </button>
+
+        {/* Post-track "Also check" prompt */}
+        {justTracked && isWatched && onSearchRequest && suggestions.length > 0 && (
+          <div className="mt-3 pt-3 border-t border-separator/40">
+            <p className="text-xs font-medium text-text-secondary mb-2">
+              Also check:
+            </p>
+            <div className="flex gap-1.5 flex-wrap">
+              {suggestions.map((s) => (
+                <button
+                  key={s.search}
+                  onClick={() => onSearchRequest(s.search)}
+                  className="px-2.5 py-1.5 rounded-full bg-surface-raised dark:bg-surface-secondary border border-separator/40 text-xs font-medium text-text-primary transition-all active:scale-95"
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 
 const tabs = [
   { href: "/", label: "Home", icon: Home },
-  { href: "/watching", label: "Watching", icon: Eye },
+  { href: "/watching", label: "Tracking", icon: Eye },
 ] as const;
 
 export function BottomNav() {

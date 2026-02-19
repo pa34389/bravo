@@ -39,7 +39,7 @@ export function ProductTile({ special, intel, size = "default" }: ProductTilePro
         ) : null}
       </div>
 
-      {/* Add/watch button */}
+      {/* Track button */}
       <button
         onClick={(e) => {
           e.stopPropagation();
