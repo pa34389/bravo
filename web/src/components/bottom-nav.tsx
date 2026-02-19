@@ -2,13 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Star, Compass, Search } from "lucide-react";
+import { Home, Eye } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const tabs = [
-  { href: "/", label: "My List", icon: Star },
-  { href: "/browse", label: "Browse", icon: Compass },
-  { href: "/search", label: "Search", icon: Search },
+  { href: "/", label: "Home", icon: Home },
+  { href: "/watching", label: "Watching", icon: Eye },
 ] as const;
 
 export function BottomNav() {
@@ -21,10 +20,9 @@ export function BottomNav() {
     >
       <div className="mx-auto flex max-w-lg items-center justify-around px-4 py-2">
         {tabs.map((tab) => {
-          const isActive =
-            tab.href === "/"
-              ? pathname === "/" || pathname === "/shop"
-              : pathname.startsWith(tab.href);
+          const isActive = tab.href === "/"
+            ? pathname === "/"
+            : pathname.startsWith(tab.href);
           const Icon = tab.icon;
 
           return (
@@ -39,7 +37,6 @@ export function BottomNav() {
               <Icon
                 size={22}
                 strokeWidth={isActive ? 2.5 : 1.5}
-                fill={isActive && tab.icon === Star ? "currentColor" : "none"}
                 className="transition-all"
               />
               <span>{tab.label}</span>

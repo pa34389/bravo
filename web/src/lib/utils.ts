@@ -1,6 +1,6 @@
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
-import type { FrequencyClass } from "./supabase";
+import type { FrequencyClass, Special, SpecialIntel } from "./supabase";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -52,4 +52,135 @@ export function predictionText(
   if (expectedDays <= 7) return "Expected back within a week";
   if (expectedDays <= 14) return `Probably ~${expectedDays} days away`;
   return `Check back in ~${expectedDays} days`;
+}
+
+export type Verdict = "buy" | "wait" | "meh";
+
+export interface VerdictResult {
+  verdict: Verdict;
+  headline: string;
+  detail: string;
+  saveAmount: number | null;
+  storeName: string | null;
+}
+
+export function computeVerdict(
+  special: Special | null,
+  intel: SpecialIntel | null
+): VerdictResult {
+  const storeName = special
+    ? storeDisplayName(special.store)
+    : intel
+      ? storeDisplayName(intel.store)
+      : null;
+
+  if (special) {
+    const pct = special.discount_pct ?? 0;
+    const save =
+      special.original_price != null
+        ? special.original_price - special.current_price
+        : null;
+    const fc = intel?.frequency_class ?? null;
+    const daysSince = intel?.days_since_last_special ?? null;
+
+    if (pct >= 40 || fc === "rare") {
+      const rareNote =
+        fc === "rare" && daysSince != null
+          ? `Last on sale ${daysSince} days ago. Rare deal.`
+          : pct >= 48
+            ? "Half price — don't miss it."
+            : `${pct}% off — good deal.`;
+      return {
+        verdict: "buy",
+        headline: `Buy at ${storeName} — ${formatPrice(special.current_price)}`,
+        detail: rareNote,
+        saveAmount: save,
+        storeName,
+      };
+    }
+
+    if (pct >= 20) {
+      if (fc === "frequent") {
+        return {
+          verdict: "meh",
+          headline: `${pct}% off at ${storeName} — ${formatPrice(special.current_price)}`,
+          detail: "Decent, but this goes on sale often. Bigger discounts come around.",
+          saveAmount: save,
+          storeName,
+        };
+      }
+      return {
+        verdict: "buy",
+        headline: `Buy at ${storeName} — ${formatPrice(special.current_price)}`,
+        detail: `${pct}% off. Good price.`,
+        saveAmount: save,
+        storeName,
+      };
+    }
+
+    return {
+      verdict: "meh",
+      headline: `${pct}% off at ${storeName} — ${formatPrice(special.current_price)}`,
+      detail: "Small discount. Might get better.",
+      saveAmount: save,
+      storeName,
+    };
+  }
+
+  if (intel) {
+    const expected = intel.expected_days_until_next;
+    const avgDays = intel.avg_frequency_days;
+    const daysSince = intel.days_since_last_special;
+    const lastPct = intel.last_discount_pct;
+
+    if (expected != null && expected <= 7) {
+      return {
+        verdict: "wait",
+        headline: "Wait — sale expected soon",
+        detail: `Usually every ~${avgDays ?? "??"} days. Expected back in ~${expected} days.`,
+        saveAmount: null,
+        storeName,
+      };
+    }
+
+    if (expected != null && expected <= 14) {
+      return {
+        verdict: "wait",
+        headline: "Hold off — couple of weeks",
+        detail: `Usually on sale every ~${avgDays ?? "??"} days.${
+          lastPct ? ` Last discount was ${lastPct}%.` : ""
+        }`,
+        saveAmount: null,
+        storeName,
+      };
+    }
+
+    if (daysSince != null && avgDays != null) {
+      return {
+        verdict: "wait",
+        headline: "Not on sale right now",
+        detail: `Last on sale ${daysSince} days ago. Usually every ~${avgDays} days.`,
+        saveAmount: null,
+        storeName,
+      };
+    }
+
+    return {
+      verdict: "wait",
+      headline: "Not on sale right now",
+      detail: intel.total_times_on_special > 0
+        ? "No prediction available yet."
+        : "No sale history — we just started tracking this.",
+      saveAmount: null,
+      storeName,
+    };
+  }
+
+  return {
+    verdict: "wait",
+    headline: "No data yet",
+    detail: "We haven't seen this item before. Watch it and we'll track it.",
+    saveAmount: null,
+    storeName: null,
+  };
 }
