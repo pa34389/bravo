@@ -1,0 +1,39 @@
+name: Coles Catalogue
+
+on:
+  schedule:
+    - cron: '0 20 * * 6'   # Saturday 6am AEST (UTC+10)
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r scraper/requirements.txt
+          playwright install chromium --with-deps
+
+      - name: Scrape Coles catalogue
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          COLES_HEADLESS: "true"
+        run: xvfb-run --auto-servernum python -m scraper.main catalogue coles
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coles-catalogue-logs
+          path: scraper/logs/
+          retention-days: 14

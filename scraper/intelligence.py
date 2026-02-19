@@ -42,7 +42,7 @@ def compute_intel(
         days_since = 0
 
     avg_freq = _compute_avg_gap(sorted_hist)
-    freq_class = _classify_frequency(avg_freq)
+    freq_class = _classify_frequency(avg_freq, total_times)
 
     expected = None
     if not is_on_special_now and avg_freq and days_since is not None:
@@ -83,7 +83,9 @@ def _compute_avg_gap(sorted_history: List[dict]) -> Optional[int]:
     return round(sum(gaps) / len(gaps))
 
 
-def _classify_frequency(avg_days: Optional[int]) -> Optional[str]:
+def _classify_frequency(avg_days: Optional[int], total_times: int = 1) -> Optional[str]:
+    if total_times == 0:
+        return "never"
     if avg_days is None:
         return None
     if avg_days <= 21:

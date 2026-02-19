@@ -1,12 +1,22 @@
 """
-Woolworths specials scraper.
+Woolworths scraper.
 Uses Playwright (stealth mode) to establish a session, then calls the browse API
-with pagination to fetch all specials.
+with pagination to fetch specials and/or full catalogue.
 """
 
 import json
 import os
 from typing import List, Optional
+
+from scraper.logger import get_logger, gha_warning, gha_error
+from scraper.stealth import (
+    stealth_delay,
+    session_break,
+    create_stealth_context,
+    bot_challenge_detected,
+)
+
+log = get_logger("woolworths")
 
 IMAGE_CDN = "https://cdn0.woolworths.media/content/wowproductimages/medium"
 BASE_URL = "https://www.woolworths.com.au"
@@ -16,16 +26,30 @@ SPECIALS_CATEGORIES = [
     {"id": "specialsgroup.3694", "name": "Lower Shelf Price", "url": "/shop/browse/specials/lower-prices"},
 ]
 
+CATALOGUE_CATEGORIES = [
+    {"id": "1-E5BEE36E", "name": "Fruit & Veg", "url": "/shop/browse/fruit-veg"},
+    {"id": "1_D5A2236", "name": "Meat, Seafood & Deli", "url": "/shop/browse/meat-seafood-deli"},
+    {"id": "1_6E4F4E4", "name": "Dairy, Eggs & Fridge", "url": "/shop/browse/dairy-eggs-fridge"},
+    {"id": "1_39FD49C", "name": "Pantry", "url": "/shop/browse/pantry"},
+    {"id": "1_5AF3A0A", "name": "Drinks", "url": "/shop/browse/drinks"},
+    {"id": "1_2432B58", "name": "Household", "url": "/shop/browse/household"},
+]
 
-def _parse_product(p: dict, specials_group_name: str) -> Optional[dict]:
+_GROCERY_DEPARTMENTS = {
+    "GROCERIES", "FRESH PRODUCE", "FRUIT AND VEG", "MEAT", "DAIRY", "FROZEN",
+    "DELI", "BAKERY", "HEALTH & BEAUTY", "BABY", "PET",
+    "DRINKS", "LIQUOR", "PANTRY", "HOUSEHOLD", "LONG LIFE",
+    "SEAFOOD", "POULTRY", "SMALLGOODS",
+}
+
+SESSION_BREAK_EVERY = 10  # pages between session breaks
+
+
+def _parse_product(p: dict, category_name: str) -> Optional[dict]:
     """Parse a single Woolworths product from the browse API response.
     Returns None for marketplace/third-party items.
     """
-    if p.get("IsMarketProduct"):
-        return None
-    if p.get("Vendor"):
-        return None
-    if p.get("ThirdPartyProductInfo"):
+    if p.get("IsMarketProduct") or p.get("Vendor") or p.get("ThirdPartyProductInfo"):
         return None
 
     price = p.get("Price")
@@ -33,7 +57,6 @@ def _parse_product(p: dict, specials_group_name: str) -> Optional[dict]:
         return None
 
     attrs = p.get("AdditionalAttributes") or {}
-
     sap_dept = (attrs.get("sapdepartmentname") or "").strip().upper()
     if sap_dept and sap_dept not in _GROCERY_DEPARTMENTS:
         return None
@@ -52,7 +75,7 @@ def _parse_product(p: dict, specials_group_name: str) -> Optional[dict]:
     if not image_url and stockcode:
         image_url = f"{IMAGE_CDN}/{stockcode}.jpg"
 
-    category = _extract_category(attrs) or specials_group_name
+    category = _extract_category(attrs) or category_name
     brand = p.get("Brand")
 
     return {
@@ -71,20 +94,12 @@ def _parse_product(p: dict, specials_group_name: str) -> Optional[dict]:
     }
 
 
-_GROCERY_DEPARTMENTS = {
-    "GROCERIES", "FRESH PRODUCE", "MEAT", "DAIRY", "FROZEN",
-    "DELI", "BAKERY", "HEALTH & BEAUTY", "BABY", "PET",
-    "DRINKS", "LIQUOR", "PANTRY", "HOUSEHOLD",
-}
-
-
 def _extract_category(attrs: dict) -> Optional[str]:
     """Extract a human-readable category from Woolworths AdditionalAttributes."""
     pies_json = attrs.get("piesdepartmentnamesjson")
     if pies_json:
         try:
-            import json as _json
-            depts = _json.loads(pies_json)
+            depts = json.loads(pies_json)
             if depts and isinstance(depts, list):
                 return str(depts[0])
         except (ValueError, TypeError, IndexError):
@@ -101,51 +116,65 @@ def _extract_category(attrs: dict) -> Optional[str]:
     return None
 
 
-def _scrape_category(page, category: dict, max_pages: int) -> List[dict]:
-    """Scrape all products in a single specials category using the browse API."""
-    products = []
-    seen_ids = set()
+def _fetch_browse_page(page, category: dict, page_num: int, is_special: bool) -> Optional[dict]:
+    """Call the Woolworths browse API for a single page."""
     cat_id = category["id"]
     cat_name = category["name"]
     cat_url = category["url"]
 
+    js = f"""
+    (async () => {{
+        const r = await fetch("/apis/ui/browse/category", {{
+            method: "POST",
+            credentials: "include",
+            headers: {{"Content-Type": "application/json", "Accept": "application/json"}},
+            body: JSON.stringify({{
+                categoryId: "{cat_id}",
+                pageNumber: {page_num},
+                pageSize: 36,
+                sortType: "TraderRelevance",
+                url: "{cat_url}",
+                isSpecial: {str(is_special).lower()},
+                isBundle: false,
+                formatObject: '{{"name":"{cat_name}"}}'
+            }})
+        }});
+        const t = await r.text();
+        return {{status: r.status, body: t}};
+    }})()
+    """
+
+    try:
+        result = page.evaluate(js)
+    except Exception as e:
+        log.error(f"{cat_name} page {page_num}: evaluate error: {e}")
+        return None
+
+    if result.get("status") != 200:
+        log.warning(f"{cat_name} page {page_num}: HTTP {result.get('status')}")
+        return None
+
+    try:
+        return json.loads(result["body"])
+    except json.JSONDecodeError:
+        log.error(f"{cat_name} page {page_num}: invalid JSON response")
+        return None
+
+
+def _scrape_category(
+    page, category: dict, max_pages: int,
+    is_special: bool = True,
+    delay_min: float = 30.0, delay_max: float = 90.0,
+) -> List[dict]:
+    """Scrape all products in a category using the browse API with stealth delays."""
+    products = []
+    seen_ids: set = set()
+    cat_name = category["name"]
+    pages_since_break = 0
+
     for page_num in range(1, max_pages + 1):
-        js = f"""
-        (async () => {{
-            const r = await fetch("/apis/ui/browse/category", {{
-                method: "POST",
-                credentials: "include",
-                headers: {{"Content-Type": "application/json", "Accept": "application/json"}},
-                body: JSON.stringify({{
-                    categoryId: "{cat_id}",
-                    pageNumber: {page_num},
-                    pageSize: 36,
-                    sortType: "TraderRelevance",
-                    url: "{cat_url}",
-                    isSpecial: true,
-                    isBundle: false,
-                    formatObject: '{{"name":"{cat_name}"}}'
-                }})
-            }});
-            const t = await r.text();
-            return {{status: r.status, body: t}};
-        }})()
-        """
-
-        try:
-            result = page.evaluate(js)
-        except Exception as e:
-            print(f"    [woolworths] Page {page_num} evaluate error: {e}")
-            break
-
-        if result.get("status") != 200:
-            print(f"    [woolworths] Page {page_num} status {result.get('status')}")
-            break
-
-        try:
-            data = json.loads(result["body"])
-        except json.JSONDecodeError:
-            print(f"    [woolworths] Page {page_num} invalid JSON")
+        data = _fetch_browse_page(page, category, page_num, is_special)
+        if data is None:
             break
 
         total = data.get("TotalRecordCount", 0)
@@ -160,76 +189,130 @@ def _scrape_category(page, category: dict, max_pages: int) -> List[dict]:
                     products.append(parsed)
                     new_count += 1
 
-        print(f"    [woolworths] {cat_name} page {page_num}: {new_count} new (total: {len(products)}/{total})")
+        log.info(f"{cat_name} p{page_num}: +{new_count} ({len(products)}/{total})")
 
         if len(products) >= total or new_count == 0:
             break
 
-        page.wait_for_timeout(800)
+        if page_num < max_pages:
+            pages_since_break += 1
+            if pages_since_break >= SESSION_BREAK_EVERY:
+                session_break(2.0, 5.0, label=f"{cat_name} session break")
+                pages_since_break = 0
+            else:
+                stealth_delay(delay_min, delay_max, label=f"{cat_name} p{page_num}")
 
     return products
 
 
+def _launch_browser_and_session(playwright, session_url: str):
+    """Launch a stealth browser and establish a Woolworths session."""
+    use_headless = os.environ.get("WOOLWORTHS_HEADLESS", "").lower() == "true"
+
+    browser = playwright.chromium.launch(
+        channel="chrome" if not use_headless else None,
+        headless=use_headless,
+        args=["--disable-blink-features=AutomationControlled"],
+    )
+    ctx = create_stealth_context(browser)
+    page = ctx.new_page()
+
+    log.info(f"Establishing session via {session_url} ...")
+    page.goto(f"{BASE_URL}{session_url}", wait_until="domcontentloaded", timeout=30000)
+    page.wait_for_timeout(6000)
+
+    if bot_challenge_detected(page):
+        log.error("BLOCKED by Woolworths. Try again later.")
+        gha_error("Woolworths scraper blocked by bot detection")
+        browser.close()
+        return None, None, None
+
+    log.info(f"Session established. Page: {page.title()}")
+    return browser, ctx, page
+
+
 def scrape_woolworths(max_pages_per_category: int = 50) -> List[dict]:
-    """
-    Scrape Woolworths specials using stealth Playwright.
-    Opens a visible Chrome, navigates to specials, then calls the browse API.
-    """
+    """Scrape Woolworths specials with stealth delays."""
     from playwright.sync_api import sync_playwright
 
     all_products = []
-    seen_ids = set()
+    seen_ids: set = set()
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(
-            channel="chrome",
-            headless=False,
-            args=["--disable-blink-features=AutomationControlled"],
+        browser, ctx, page = _launch_browser_and_session(
+            p, "/shop/browse/specials/half-price"
         )
-        ctx = browser.new_context(
-            viewport={"width": 1280, "height": 900},
-            locale="en-AU",
-            timezone_id="Australia/Sydney",
-        )
-        ctx.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-            delete navigator.__proto__.webdriver;
-            window.chrome = {runtime: {}};
-        """)
-
-        page = ctx.new_page()
-
-        print("  [woolworths] Establishing session ...")
-        page.goto(
-            f"{BASE_URL}/shop/browse/specials/half-price",
-            wait_until="domcontentloaded",
-            timeout=30000,
-        )
-        page.wait_for_timeout(6000)
-        title = page.title()
-        print(f"  [woolworths] Page title: {title}")
-
-        if "unauthorised" in title.lower() or "access denied" in title.lower():
-            print("  [woolworths] BLOCKED - try again in a few minutes")
-            browser.close()
+        if not browser:
             return []
 
         for category in SPECIALS_CATEGORIES:
-            print(f"  [woolworths] Scraping category: {category['name']} ...")
-            cat_products = _scrape_category(page, category, max_pages_per_category)
+            log.info(f"Scraping specials: {category['name']} ...")
+            cat_products = _scrape_category(
+                page, category, max_pages_per_category,
+                is_special=True, delay_min=30.0, delay_max=90.0,
+            )
             for cp in cat_products:
                 if cp["product_id"] not in seen_ids:
                     seen_ids.add(cp["product_id"])
                     all_products.append(cp)
 
+            if category != SPECIALS_CATEGORIES[-1]:
+                session_break(1.0, 3.0, label="between specials categories")
+
         browser.close()
 
-    print(f"  [woolworths] Done: {len(all_products)} products scraped")
+    log.info(f"Specials done: {len(all_products)} products")
+    return all_products
+
+
+def scrape_woolworths_catalogue(
+    categories: Optional[List[dict]] = None,
+    max_pages_per_category: int = 100,
+) -> List[dict]:
+    """Scrape full product catalogue for the given categories."""
+    from playwright.sync_api import sync_playwright
+
+    if categories is None:
+        categories = CATALOGUE_CATEGORIES
+
+    all_products = []
+    seen_ids: set = set()
+
+    with sync_playwright() as p:
+        first_url = categories[0]["url"] if categories else "/shop/browse/pantry"
+        browser, ctx, page = _launch_browser_and_session(p, first_url)
+        if not browser:
+            return []
+
+        for i, category in enumerate(categories):
+            log.info(f"Catalogue [{i+1}/{len(categories)}]: {category['name']} ...")
+            cat_products = _scrape_category(
+                page, category, max_pages_per_category,
+                is_special=False, delay_min=45.0, delay_max=120.0,
+            )
+            for cp in cat_products:
+                if cp["product_id"] not in seen_ids:
+                    seen_ids.add(cp["product_id"])
+                    all_products.append(cp)
+
+            log.info(f"  {category['name']}: {len(cat_products)} products")
+
+            if i < len(categories) - 1:
+                session_break(3.0, 7.0, label=f"between categories ({category['name']})")
+
+        browser.close()
+
+    log.info(f"Catalogue done: {len(all_products)} products across {len(categories)} categories")
     return all_products
 
 
 if __name__ == "__main__":
-    products = scrape_woolworths(max_pages_per_category=2)
+    import sys
+    mode = sys.argv[1] if len(sys.argv) > 1 else "specials"
+    if mode == "catalogue":
+        products = scrape_woolworths_catalogue(max_pages_per_category=2)
+    else:
+        products = scrape_woolworths(max_pages_per_category=2)
     print(f"\nGot {len(products)} products")
     for p in products[:5]:
-        print(f"  {p['name']} | ${p['current_price']} (was ${p['original_price']}) {p['discount_pct']}% off")
+        print(f"  {p['name']} | ${p['current_price']} (was ${p.get('original_price', 'N/A')})")

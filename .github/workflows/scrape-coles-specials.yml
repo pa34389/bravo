@@ -1,14 +1,14 @@
-name: Daily Price Scrape
+name: Coles Specials
 
 on:
   schedule:
-    - cron: '0 20 * * *'  # 6am AEST (UTC+10)
-  workflow_dispatch:        # Manual trigger
+    - cron: '0 20 * * 3'   # Wednesday 6am AEST (UTC+10)
+  workflow_dispatch:
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 240
 
     steps:
       - uses: actions/checkout@v4
@@ -21,13 +21,16 @@ jobs:
       - name: Install dependencies
         run: pip install -r scraper/requirements.txt
 
-      - name: Run scraper
+      - name: Scrape Coles specials
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-        run: python -m scraper.main scrape
-        working-directory: .
+        run: python -m scraper.main specials coles
 
-      - name: Notify on failure
-        if: failure()
-        run: echo "::warning::Scraper failed! Check logs."
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coles-specials-logs
+          path: scraper/logs/
+          retention-days: 14

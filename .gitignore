@@ -26,3 +26,6 @@ Thumbs.db
 
 # Recon scripts and data
 scraper/recon_*
+
+# Scraper logs (uploaded as GHA artifacts)
+scraper/logs/
