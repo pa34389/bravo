@@ -36,6 +36,25 @@ db = create_client(SUPABASE_URL, SUPABASE_KEY)
 BATCH = 200
 
 
+def _check_products_table() -> bool:
+    """Verify the products table exists. Returns False with clear error if missing."""
+    try:
+        db.table("products").select("id").limit(1).execute()
+        return True
+    except Exception as e:
+        if "PGRST205" in str(e) or "does not exist" in str(e):
+            msg = (
+                "Products table does not exist. "
+                "Run the migration in supabase/migrations/003_products_catalogue.sql "
+                "via the Supabase SQL Editor."
+            )
+            log.error(msg)
+            gha_error(msg)
+        else:
+            log.error(f"Products table check failed: {e}")
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Specials pipeline
 # ---------------------------------------------------------------------------
@@ -323,6 +342,9 @@ def run_specials(stores=None):
 
 def run_catalogue(stores=None):
     """Execute the catalogue scrape pipeline."""
+    if not _check_products_table():
+        sys.exit(1)
+
     if stores is None:
         stores = ["coles", "woolworths"]
 
